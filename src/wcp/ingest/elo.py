@@ -1,25 +1,12 @@
-"""World Football Elo ratings.
+"""World Football Elo ratings (current snapshot).
 
-Source: eloratings.net publishes its rating history. The simplest free
-machine-readable mirror is the per-team Elo CSV at:
+Source: eloratings.net's machine-readable current-rankings TSV at
+``https://www.eloratings.net/World.tsv``. 244 national teams, 31 columns;
+the first few are stable and documented at https://www.eloratings.net/about.
 
-    http://api.clubelo.com/  (clubs only — NOT useful for internationals)
-
-For internationals we use the community CSV mirror maintained at
-https://github.com/lsv/fifa-worldcup-2018 / https://github.com/martj42 has stale
-mirrors; the most active free source is the eloratings.net per-date snapshot.
-
-This ingester pulls the ranking-history JSON exposed by the unofficial
-World Football Elo "API" used by community projects:
-
-    https://www.eloratings.net/World.tsv  (current top-N TSV snapshot)
-
-For full history we instead bundle the matches CSV exposed at:
-
-    https://www.eloratings.net/all_matches.tsv
-
-If the upstream changes, override the URL via the ``WCP_ELO_URL`` env var or
-swap to one of the mirrored CSVs in data/external/.
+There is no public full-history TSV. eloratings.net used to expose
+``all_matches.tsv`` but it 404s as of 2026-06; if a fresh mirror appears,
+swap it in via the ``WCP_ELO_HISTORY_URL`` env var.
 """
 from __future__ import annotations
 
@@ -37,35 +24,34 @@ SOURCE = "elo"
 CURRENT_URL = os.environ.get(
     "WCP_ELO_CURRENT_URL", "https://www.eloratings.net/World.tsv"
 )
-HISTORY_URL = os.environ.get(
-    "WCP_ELO_HISTORY_URL", "https://www.eloratings.net/all_matches.tsv"
-)
+
+# Stable columns in eloratings.net World.tsv. Trailing columns (4-30) hold
+# detailed historical match counts — we keep them as ``raw_*`` for future use.
+NAMED_COLUMNS = {
+    0: "rank",
+    1: "rank_overall",
+    2: "country_code",
+    3: "elo",
+    4: "rank_change",
+    5: "elo_peak",
+    6: "rank_peak",
+    7: "elo_low",
+    8: "rank_low",
+}
 
 
-def _download_tsv(url: str, dest: Path) -> Path:
-    body = http_get(url)
-    dest.write_bytes(body)
-    return dest
-
-
-def _read_tsv(path: Path) -> pd.DataFrame:
-    return pd.read_csv(path, sep="\t", header=None, low_memory=False)
-
-
-def ingest() -> dict[str, Path]:
+def ingest() -> Path:
     raw = raw_dir(SOURCE)
-    cur = _download_tsv(CURRENT_URL, raw / "current.tsv")
-    hist = _download_tsv(HISTORY_URL, raw / "all_matches.tsv")
+    body = http_get(CURRENT_URL, use_cache=False)  # always refresh current ratings
+    tsv = raw / "current.tsv"
+    tsv.write_bytes(body)
 
-    df_cur = _read_tsv(cur)
-    df_hist = _read_tsv(hist)
+    df = pd.read_csv(io.BytesIO(body), sep="\t", header=None, low_memory=False)
+    df = df.rename(columns=NAMED_COLUMNS)
+    df = df.rename(columns={i: f"raw_{i}" for i in df.columns if isinstance(i, int)})
 
-    out = {
-        "current": processed_path("elo_current.parquet"),
-        "history": processed_path("elo_history.parquet"),
-    }
-    df_cur.to_parquet(out["current"], index=False)
-    df_hist.to_parquet(out["history"], index=False)
+    out = processed_path("elo_current.parquet")
+    df.to_parquet(out, index=False)
     return out
 
 

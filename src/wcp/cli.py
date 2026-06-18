@@ -39,9 +39,8 @@ def _ingest_results() -> None:
 @ingest.command("elo")
 def _ingest_elo() -> None:
     from .ingest import elo
-    out = elo.ingest()
-    for k, p in out.items():
-        click.echo(f"{k}: {p}")
+    p = elo.ingest()
+    click.echo(str(p))
 
 
 @ingest.command("fifa-rank")

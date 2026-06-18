@@ -1,10 +1,11 @@
 """FIFA World Rankings (men's).
 
-Source: a community-maintained CSV mirror of FIFA's official rankings, kept on
-GitHub at cashlo/FIFA-Ranking. The official FIFA download is paginated HTML
-without a public API, so the mirror is the path of least resistance.
+Source: a community-maintained CSV mirror of FIFA's official rankings.
 
-Override URLs via WCP_FIFA_RANK_URL if the mirror moves.
+As of 2026-06, the cashlo/FIFA-Ranking mirror is 404 and there is no widely
+maintained replacement. Set ``WCP_FIFA_RANK_URL`` to a working mirror to use
+this ingester, or skip it — Elo ratings (see ``elo.py``) are the better
+strength signal for the predictor anyway.
 """
 from __future__ import annotations
 
