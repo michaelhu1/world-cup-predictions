@@ -61,5 +61,4 @@ src/wcp/
 
 ## Notes
 
-- Local git identity for this repo is `SuperXingKong / 1912003473@qq.com` (project-scoped, not global).
 - Scrapers throttle and respect `robots.txt`; cached HTTP responses live under `data/cache/`.
