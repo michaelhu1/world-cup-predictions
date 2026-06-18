@@ -54,8 +54,9 @@ def _ingest_fifa_rank() -> None:
 @ingest.command("worldcup")
 def _ingest_worldcup() -> None:
     from .ingest import worldcup_history
-    p = worldcup_history.ingest()
-    click.echo(str(p))
+    out = worldcup_history.ingest()
+    for k, p in out.items():
+        click.echo(f"{k}: {p}")
 
 
 @ingest.command("players")
