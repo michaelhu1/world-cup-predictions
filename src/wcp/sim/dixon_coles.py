@@ -350,14 +350,23 @@ def fit_strengths(
         + [(-0.99, 0.99)]          # rho
     )
 
+    args = (home_idx, away_idx, home_g, away_g, h_flag, weights, n)
     res = minimize(
-        _neg_log_likelihood,
-        theta0,
-        args=(home_idx, away_idx, home_g, away_g, h_flag, weights, n),
-        method="L-BFGS-B",
-        bounds=bounds,
-        options={"maxiter": max_iter, "disp": False},
+        _neg_log_likelihood, theta0, args=args,
+        method="L-BFGS-B", bounds=bounds,
+        options={"maxiter": max_iter, "disp": False, "ftol": 1e-9},
     )
+    # If the first pass exhausted iterations, warm-restart once: L-BFGS-B
+    # accumulates a Hessian approximation, restarting from the current point
+    # with a fresh memory often nails down the last bits.
+    restarts = 0
+    while not res.success and restarts < 2:
+        restarts += 1
+        res = minimize(
+            _neg_log_likelihood, res.x, args=args,
+            method="L-BFGS-B", bounds=bounds,
+            options={"maxiter": max_iter, "disp": False, "ftol": 1e-9},
+        )
 
     theta = res.x
     attack = theta[:n] - theta[:n].mean()
@@ -377,8 +386,10 @@ def fit_strengths(
             "min_team_matches": int(min_team_matches),
             "asof": asof.isoformat(),
             "converged": bool(res.success),
+            "warm_restarts": restarts,
             "nll": float(res.fun),
             "iterations": int(res.nit),
+            "message": str(res.message),
         },
     )
     return fitted

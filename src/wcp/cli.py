@@ -162,15 +162,28 @@ def simulate(home: str, away: str, n: int,
 
     chosen_model = model or (str(DEFAULT_DC_PATH) if DEFAULT_DC_PATH.exists() else None)
     if chosen_model:
+        from .sim.dixon_coles import TEAM_ALIASES
         fitted = FittedModel.load(chosen_model)
         sim = DixonColesSimulator.from_fit(fitted, seed=seed)
         m = fitted.meta
         click.echo(f"loaded fitted model: teams={m.get('n_teams')} "
                    f"matches={m.get('n_matches')} asof={m.get('asof', '?')}")
-        if home not in fitted.strengths:
-            click.echo(f"  ! {home} not in fitted strengths; falling back to rating", err=True)
-        if away not in fitted.strengths:
-            click.echo(f"  ! {away} not in fitted strengths; falling back to rating", err=True)
+
+        def _resolve_label(name: str) -> str | None:
+            if name in fitted.strengths:
+                return name
+            alias = TEAM_ALIASES.get(name)
+            if alias and alias in fitted.strengths:
+                return alias
+            return None
+
+        for label, name in (("home", home), ("away", away)):
+            resolved = _resolve_label(name)
+            if resolved is None:
+                click.echo(f"  ! {name} not in fitted strengths; falling back to rating",
+                           err=True)
+            elif resolved != name:
+                click.echo(f"  resolved {name} -> {resolved}")
     else:
         sim = DixonColesSimulator(seed=seed)
         click.echo("no fitted model found — using rating-only fallback "
