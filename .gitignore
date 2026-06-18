@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build / dist
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project data
+data/raw/
+data/interim/
+data/processed/
+data/external/
+data/cache/
+data/.gitkeep_meta
+*.parquet
+*.feather
+*.duckdb
+*.sqlite
+*.sqlite3
+
+# Logs / reports
+logs/
+reports/figures/
+reports/*.html
+
+# Secrets
+.env
+.env.*
+!.env.example
+secrets/
+
+# Agent / workflow scratch artifacts
+gh_repos*.json
+*.scratch.json
+.workflow_cache/
