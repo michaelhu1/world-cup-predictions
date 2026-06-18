@@ -1,9 +1,10 @@
 """`wcp` command-line entrypoint.
 
-Two top-level groups:
+Top-level commands:
 
     wcp ingest <source>     run a single ingester or all of them
-    wcp simulate ...        run a baseline match simulation
+    wcp fit dixon-coles     MLE-fit Dixon-Coles strengths on results.parquet
+    wcp simulate ...        Dixon-Coles simulation between two teams
 """
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ import logging
 
 import click
 
-from .paths import ensure_dirs
+from .paths import ensure_dirs, processed_path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -95,6 +96,47 @@ def _ingest_all() -> None:
             click.echo(f"  failed: {e}", err=True)
 
 
+# ---------- fit ----------
+DEFAULT_DC_PATH = processed_path("dc_strengths.json")
+
+
+@main.group()
+def fit() -> None:
+    """Fit model parameters."""
+
+
+@fit.command("dixon-coles")
+@click.option("--half-life-days", type=float, default=1825.0,
+              help="Time-decay half-life in days (default ~5 years).")
+@click.option("--min-team-matches", type=int, default=30,
+              help="Drop teams with fewer than this many matches.")
+@click.option("--out", type=click.Path(), default=str(DEFAULT_DC_PATH))
+@click.option("--max-iter", type=int, default=200)
+def _fit_dc(half_life_days: float, min_team_matches: int,
+            out: str, max_iter: int) -> None:
+    """Maximum-likelihood fit of Dixon-Coles strengths on results.parquet."""
+    from .sim.dixon_coles import fit_strengths
+
+    fitted = fit_strengths(
+        half_life_days=half_life_days,
+        min_team_matches=min_team_matches,
+        max_iter=max_iter,
+    )
+    p = fitted.save(out)
+    m = fitted.meta
+    click.echo(f"saved {p}")
+    click.echo(f"  teams={m['n_teams']}  matches={m['n_matches']}  "
+               f"converged={m['converged']}  nll={m['nll']:.1f}")
+    click.echo(f"  intercept={fitted.params.intercept:.3f}  "
+               f"home_adv={fitted.params.home_advantage:.3f}  "
+               f"rho={fitted.params.rho:.3f}")
+    click.echo("  top 10 by attack:")
+    top_atk = sorted(fitted.strengths.items(),
+                     key=lambda kv: -kv[1].attack)[:10]
+    for name, s in top_atk:
+        click.echo(f"    {name:<22} attack={s.attack:+.3f}  defence={s.defence:+.3f}")
+
+
 # ---------- simulate ----------
 @main.command()
 @click.option("--home", required=True)
@@ -102,19 +144,48 @@ def _ingest_all() -> None:
 @click.option("--n", type=int, default=10_000)
 @click.option("--home-rating", type=float, default=None)
 @click.option("--away-rating", type=float, default=None)
+@click.option("--neutral", is_flag=True, default=False,
+              help="Treat the venue as neutral (no home advantage).")
+@click.option("--model", type=click.Path(), default=None,
+              help=f"Path to dc_strengths.json (default: {DEFAULT_DC_PATH} if it exists).")
 @click.option("--seed", type=int, default=None)
 def simulate(home: str, away: str, n: int,
              home_rating: float | None, away_rating: float | None,
-             seed: int | None) -> None:
-    """Baseline Dixon-Coles simulation between two teams."""
-    from .sim.base import TeamSpec
-    from .sim.dixon_coles import DixonColesSimulator
+             neutral: bool, model: str | None, seed: int | None) -> None:
+    """Dixon-Coles simulation between two teams.
 
-    sim = DixonColesSimulator(seed=seed)
+    Auto-loads ``data/processed/dc_strengths.json`` if it exists; otherwise
+    falls back to Elo-style rating-derived expected goals.
+    """
+    from .sim.base import TeamSpec
+    from .sim.dixon_coles import DixonColesSimulator, FittedModel
+
+    chosen_model = model or (str(DEFAULT_DC_PATH) if DEFAULT_DC_PATH.exists() else None)
+    if chosen_model:
+        fitted = FittedModel.load(chosen_model)
+        sim = DixonColesSimulator.from_fit(fitted, seed=seed)
+        m = fitted.meta
+        click.echo(f"loaded fitted model: teams={m.get('n_teams')} "
+                   f"matches={m.get('n_matches')} asof={m.get('asof', '?')}")
+        if home not in fitted.strengths:
+            click.echo(f"  ! {home} not in fitted strengths; falling back to rating", err=True)
+        if away not in fitted.strengths:
+            click.echo(f"  ! {away} not in fitted strengths; falling back to rating", err=True)
+    else:
+        sim = DixonColesSimulator(seed=seed)
+        click.echo("no fitted model found — using rating-only fallback "
+                   "(run `wcp fit dixon-coles` first)")
+
     h = TeamSpec(name=home, rating=home_rating)
     a = TeamSpec(name=away, rating=away_rating)
+    # Stash neutral flag onto sim by closure: the interface takes neutral via
+    # simulate_match kwarg, but simulate_distribution drives that internally;
+    # patch by wrapping.
+    orig = sim.simulate_match
+    sim.simulate_match = lambda H, A: orig(H, A, neutral=neutral)  # type: ignore[assignment]
+
     dist = sim.simulate_distribution(h, a, n=n)
-    click.echo(f"{home} vs {away}  (n={n})")
+    click.echo(f"{home} vs {away}  (n={n}{', neutral' if neutral else ''})")
     click.echo(f"  P({home} win) = {dist.home_win_prob:.3f}")
     click.echo(f"  P(draw)       = {dist.draw_prob:.3f}")
     click.echo(f"  P({away} win) = {dist.away_win_prob:.3f}")
