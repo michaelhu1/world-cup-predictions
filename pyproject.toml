@@ -30,6 +30,16 @@ sim = [
     "scipy>=1.12",
     "scikit-learn>=1.4",
 ]
+events = [
+    # StatsBomb-open + socceraction stack for player VAEP/xG priors used
+    # by the scorer-allocation head (see docs/architecture.md).
+    "statsbombpy>=1.12",
+    "socceraction>=1.5",
+]
+bayes = [
+    "pymc>=5.10",
+    "arviz>=0.17",
+]
 notebook = [
     "jupyterlab>=4.0",
     "matplotlib>=3.8",
