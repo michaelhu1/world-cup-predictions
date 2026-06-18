@@ -108,10 +108,10 @@ def fit() -> None:
 @fit.command("dixon-coles")
 @click.option("--half-life-days", type=float, default=1825.0,
               help="Time-decay half-life in days (default ~5 years).")
-@click.option("--min-team-matches", type=int, default=30,
+@click.option("--min-team-matches", type=int, default=50,
               help="Drop teams with fewer than this many matches.")
 @click.option("--out", type=click.Path(), default=str(DEFAULT_DC_PATH))
-@click.option("--max-iter", type=int, default=200)
+@click.option("--max-iter", type=int, default=500)
 def _fit_dc(half_life_days: float, min_team_matches: int,
             out: str, max_iter: int) -> None:
     """Maximum-likelihood fit of Dixon-Coles strengths on results.parquet."""

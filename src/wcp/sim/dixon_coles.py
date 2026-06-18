@@ -157,24 +157,59 @@ def _attribute_goals(
 
 
 # Tournament importance multipliers — friendlies count less, WC counts more.
+# Non-FIFA / sub-confederation tournaments get near-zero weight to keep
+# minor-island sides from dominating the fit when they pile up wins in
+# regional games against very weak opponents.
 _TOURNAMENT_WEIGHT: dict[str, float] = {
     "Friendly": 0.4,
     "FIFA World Cup": 1.5,
     "FIFA World Cup qualification": 1.0,
     "UEFA Euro": 1.3,
     "UEFA Euro qualification": 0.9,
+    "UEFA Nations League": 1.0,
     "Copa América": 1.2,
     "African Cup of Nations": 1.0,
+    "African Cup of Nations qualification": 0.8,
     "AFC Asian Cup": 1.0,
-    "UEFA Nations League": 1.0,
+    "AFC Asian Cup qualification": 0.8,
     "CONCACAF Nations League": 1.0,
+    "CONCACAF Gold Cup": 1.0,
+    "Confederations Cup": 1.0,
+    # Near-zero weight: regional / non-FIFA-rated tournaments.
+    "Island Games": 0.0,
+    "Inter Games": 0.0,
+    "Gulf Cup": 0.2,
+    "CECAFA Cup": 0.2,
+    "WAFF Cup": 0.2,
+    "Pacific Games": 0.0,
+    "Indian Ocean Island Games": 0.0,
+    "Mediterranean Games": 0.0,
 }
 
 
 def _tournament_weight(name: str | float) -> float:
     if not isinstance(name, str):
-        return 0.7
-    return _TOURNAMENT_WEIGHT.get(name, 0.7)
+        return 0.5
+    return _TOURNAMENT_WEIGHT.get(name, 0.5)
+
+
+# User-facing aliases for common short names. Apply to both home/away when
+# resolving a fitted strength — keeps `--home USA` working when the dataset
+# stores "United States".
+TEAM_ALIASES: dict[str, str] = {
+    "USA": "United States",
+    "UAE": "United Arab Emirates",
+    "DR Congo": "DR Congo",
+    "Congo DR": "DR Congo",
+    "South Korea": "South Korea",
+    "Korea Republic": "South Korea",
+    "North Korea": "North Korea",
+    "Korea DPR": "North Korea",
+    "Ivory Coast": "Côte d'Ivoire",
+    "Cape Verde": "Cape Verde",
+    "Czechia": "Czech Republic",
+    "Türkiye": "Turkey",
+}
 
 
 def _build_design(
@@ -263,10 +298,10 @@ def fit_strengths(
     matches_df=None,
     *,
     half_life_days: float = 1825.0,
-    min_team_matches: int = 30,
+    min_team_matches: int = 50,
     asof: datetime | None = None,
     init: FittedModel | None = None,
-    max_iter: int = 200,
+    max_iter: int = 500,
 ) -> FittedModel:
     """Maximum-likelihood fit of Dixon-Coles team strengths on
     ``data/processed/results.parquet`` (or the dataframe passed in).
@@ -369,13 +404,22 @@ class DixonColesSimulator(MatchSimulator):
     def from_fit(cls, fit: FittedModel, seed: int | None = None) -> "DixonColesSimulator":
         return cls(params=fit.params, strengths=fit.strengths, seed=seed)
 
+    def _resolve(self, name: str) -> TeamStrength | None:
+        s = self.strengths.get(name)
+        if s is not None:
+            return s
+        alias = TEAM_ALIASES.get(name)
+        if alias:
+            return self.strengths.get(alias)
+        return None
+
     def _expected_goals(
         self, home: TeamSpec, away: TeamSpec, neutral: bool = False
     ) -> tuple[float, float]:
         p = self.params
         h_flag = 0.0 if neutral else 1.0
-        sh = self.strengths.get(home.name)
-        sa = self.strengths.get(away.name)
+        sh = self._resolve(home.name)
+        sa = self._resolve(away.name)
         if sh and sa:
             log_lam_h = p.intercept + p.home_advantage * h_flag + sh.attack - sa.defence
             log_lam_a = p.intercept + sa.attack - sh.defence
