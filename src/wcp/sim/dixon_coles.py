@@ -193,6 +193,21 @@ def _tournament_weight(name: str | float) -> float:
     return _TOURNAMENT_WEIGHT.get(name, 0.5)
 
 
+# Non-FIFA representative teams that play friendlies in the dataset but
+# aren't recognised as full international sides. Exclude them from the fit
+# so they don't pollute the strength ranking.
+NON_FIFA_TEAMS: frozenset[str] = frozenset({
+    "Basque Country", "Catalonia", "Galicia", "Andalusia",
+    "Yorkshire", "Sápmi", "Western Sahara", "Tibet", "Greenland",
+    "Kurdistan", "Provence", "Occitania", "Brittany", "Cornwall",
+    "Orkney", "Shetland", "Frøya", "Padania", "Two Sicilies",
+    "Northern Cyprus", "Karpatalja", "Republic of St. Pauli",
+    "Romani people", "Tamil Eelam", "Zanzibar", "Réunion",
+    "Saint Martin", "Saint-Martin", "Sint Maarten",
+    "Gibraltar", "Vatican City",
+})
+
+
 # User-facing aliases for common short names. Apply to both home/away when
 # resolving a fitted strength — keeps `--home USA` working when the dataset
 # stores "United States".
@@ -224,6 +239,9 @@ def _build_design(
     df = df.dropna(subset=["home_score", "away_score", "home_team", "away_team", "date"]).copy()
     df["home_score"] = df["home_score"].astype(int)
     df["away_score"] = df["away_score"].astype(int)
+
+    # Drop non-FIFA representative sides up-front.
+    df = df[~df["home_team"].isin(NON_FIFA_TEAMS) & ~df["away_team"].isin(NON_FIFA_TEAMS)]
 
     # Drop teams with too few matches — their strengths are unidentified.
     counts = (
@@ -351,21 +369,22 @@ def fit_strengths(
     )
 
     args = (home_idx, away_idx, home_g, away_g, h_flag, weights, n)
+    # L-BFGS-B caps function evaluations at maxfun (default 15000); on a
+    # 247-team x 49k-match problem one iteration can blow through that.
+    # Bump both maxiter and maxfun aggressively — runtime is still seconds.
+    opts = {"maxiter": max_iter, "maxfun": 200_000, "disp": False, "ftol": 1e-9}
     res = minimize(
         _neg_log_likelihood, theta0, args=args,
-        method="L-BFGS-B", bounds=bounds,
-        options={"maxiter": max_iter, "disp": False, "ftol": 1e-9},
+        method="L-BFGS-B", bounds=bounds, options=opts,
     )
-    # If the first pass exhausted iterations, warm-restart once: L-BFGS-B
-    # accumulates a Hessian approximation, restarting from the current point
-    # with a fresh memory often nails down the last bits.
+    # If the first pass exhausted budgets, warm-restart: L-BFGS-B
+    # accumulates a Hessian approximation; restarting often nails the last bits.
     restarts = 0
     while not res.success and restarts < 2:
         restarts += 1
         res = minimize(
             _neg_log_likelihood, res.x, args=args,
-            method="L-BFGS-B", bounds=bounds,
-            options={"maxiter": max_iter, "disp": False, "ftol": 1e-9},
+            method="L-BFGS-B", bounds=bounds, options=opts,
         )
 
     theta = res.x
